@@ -1,0 +1,61 @@
+create table sample_table(name varchar(15),city varchar(15),age int,mail varchar(20) primary key); 
+
+// This table is not needed
+create table sample_table__audits(mail varchar(20), columnchanged varchar(10), oldvalue varchar(10), changed_on timestamp(6) NOT NULL)
+
+create table sample_table__audits_dynamicols(mail varchar(20) , columnchanged varchar(10), oldvalue varchar(10), changed_on timestamp(6) NOT NULL)
+
+
+// Create a function to pump data into audit table when a trigger is executed
+SELECT column_name FROM information_schema.Columns WHERE table_schema = ‘public’ AND table_name = ‘sample_table’;
+
+
+// Function to audit the column change values of a table
+CREATE OR REPLACE FUNCTION public.log_sample_table_allchanges()
+  RETURNS trigger AS
+$BODY$DECLARE
+   _colname text;
+   _tablename varchar(15) := 'sample_table';
+   _schema varchar(15) := 'public';
+   _changed_on timestamp with time zone := now();
+   _old_val text;
+   _new_val text;
+BEGIN
+  FOR _colname IN SELECT column_name FROM information_schema.Columns WHERE table_schema = _schema AND table_name = _tablename LOOP	
+     EXECUTE 'SELECT $1.' || _colname || ', $2.' || _colname
+           USING OLD,NEW
+           INTO _old_val, _new_val;
+     IF _new_val <> _old_val THEN
+        INSERT INTO sample_table__audits_dynamicols(mail,columnchanged, oldvalue ,changed_on)
+        VALUES(OLD.mail,_colname,_old_val,_changed_on);
+     END IF;
+  END LOOP;
+ RETURN NEW;
+END$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+ALTER FUNCTION public.log_sample_table_allchanges()
+  OWNER TO postgres;
+
+
+======================
+create TRIGGER log_sample_table_allchanges
+  BEFORE UPDATE
+  ON SAMPLE_TABLE
+  FOR EACH ROW
+  EXECUTE PROCEDURE log_sample_table_allchanges();
+
+insert into sample_table (name, mail, city, age) values('kanta','mk@foo.com','hyd',23);
+
+insert into sample_table (name, mail, city, age) values('kmk','mk@gmail.com','hyd',23);
+
+
+update sample_table set age=21 where city='bza';
+update sample_table set city='bza' where mail='mk@gainsight.com';
+
+// No need to query this
+select * from sample_table__audits;
+
+
+select * from sample_table;
+select * from sample_table__audits_dynamicols;
